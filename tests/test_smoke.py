@@ -3,7 +3,6 @@ Lightweight smoke tests — no torch, no ML deps.
 These run in CI with: pytest tests/test_smoke.py -q
 """
 import os
-import json
 import yaml
 import pathlib
 
@@ -28,36 +27,35 @@ def test_k8s_manifests_have_required_kinds():
         for doc in yaml.safe_load_all(f.read_text()):
             if doc and "kind" in doc:
                 kinds.add(doc["kind"])
-    # Expect at least a Deployment and a Service
     assert "Deployment" in kinds, f"No Deployment found, got: {kinds}"
     assert "Service" in kinds, f"No Service found, got: {kinds}"
 
 
 def test_prometheus_config_is_valid_yaml():
-    cfg = ROOT / "monitoring" / "prometheus.yml"
-    if not cfg.exists():
-        cfg = ROOT / "prometheus.yml"
-    if not cfg.exists():
-        return  # optional — skip if not present
-    data = yaml.safe_load(cfg.read_text())
-    assert "scrape_configs" in data, "prometheus.yml missing scrape_configs"
+    for candidate in ["monitoring/prometheus.yml", "prometheus/prometheus.yml", "prometheus.yml"]:
+        cfg = ROOT / candidate
+        if cfg.exists():
+            data = yaml.safe_load(cfg.read_text())
+            assert "scrape_configs" in data, f"{candidate} missing scrape_configs"
+            return
+    # not present — skip
 
 
 def test_docker_compose_has_api_service():
-    dc = ROOT / "docker-compose.yml"
-    if not dc.exists():
-        dc = ROOT / "docker-compose.yaml"
-    assert dc.exists(), "docker-compose.yml not found"
-    data = yaml.safe_load(dc.read_text())
-    services = data.get("services", {})
-    assert services, "docker-compose.yml has no services"
-    # At least one service should expose port 8000 (the API)
-    ports_flat = " ".join(
-        str(p)
-        for s in services.values()
-        for p in s.get("ports", [])
-    )
-    assert "8000" in ports_flat, f"No service exposes port 8000; ports: {ports_flat}"
+    for name in ["docker-compose.yml", "docker-compose.yaml"]:
+        dc = ROOT / name
+        if dc.exists():
+            data = yaml.safe_load(dc.read_text())
+            services = data.get("services", {})
+            assert services, f"{name} has no services"
+            ports_flat = " ".join(
+                str(p)
+                for s in services.values()
+                for p in s.get("ports", [])
+            )
+            assert "8000" in ports_flat, f"No service exposes port 8000; ports: {ports_flat}"
+            return
+    assert False, "docker-compose.yml not found"
 
 
 # ── File presence checks ───────────────────────────────────────────────────────
@@ -67,10 +65,15 @@ def test_required_project_files_exist():
         "Dockerfile",
         "requirements.txt",
         "chat_server.py",
-        ".github/workflows/ci-cd.yml",
     ]
     missing = [p for p in required if not (ROOT / p).exists()]
     assert not missing, f"Missing project files: {missing}"
+
+
+def test_github_actions_workflow_exists():
+    # Check via os.path to handle hidden directories on all OS
+    wf = os.path.join(str(ROOT), ".github", "workflows", "ci-cd.yml")
+    assert os.path.exists(wf), f"CI workflow not found at {wf}"
 
 
 def test_terraform_main_exists():
@@ -83,7 +86,7 @@ def test_terraform_main_exists():
 # ── Lightweight logic tests (stdlib only) ─────────────────────────────────────
 
 def test_zscore_pure_python():
-    """Reproduce zscore logic without torch to prove the math is right."""
+    """Reproduce zscore logic without torch."""
     import math
 
     def zscore(values):
@@ -100,10 +103,11 @@ def test_zscore_pure_python():
 
 
 def test_parse_label_logic():
-    """Mirrors parse_label() without importing rlprompt."""
+    """Mirrors parse_label() — longest-label-first matching."""
     def parse_label(text, labels):
         tl = text.strip().lower()
-        for i, lab in enumerate(labels):
+        # Sort by length descending so longer labels win over shorter substrings
+        for i, lab in sorted(enumerate(labels), key=lambda x: -len(x[1])):
             if lab in tl:
                 return i
         return None
