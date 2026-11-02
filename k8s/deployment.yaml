@@ -20,8 +20,8 @@ spec:
     spec:
       containers:
         - name: api
-          image: ghcr.io/your-username/rl-prompt-optimizer:latest
-          imagePullPolicy: Always
+          image: mlopsproject-api:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
           envFrom:
