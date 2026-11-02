@@ -17,10 +17,11 @@ import types
 import streamlit as st
 
 # ── Keys: Streamlit secrets -> environment (what llm_clients reads) ────────
+# Always overwrite, so edited Secrets take effect on the next rerun.
 for _k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY", "NIMA_API"):
     try:
-        if _k in st.secrets and not os.environ.get(_k):
-            os.environ[_k] = str(st.secrets[_k]).strip()
+        if _k in st.secrets:
+            os.environ[_k] = str(st.secrets[_k]).strip().strip("'\"")
     except Exception:  # no secrets file locally
         pass
 
