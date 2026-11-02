@@ -1,0 +1,4 @@
+# Slim deps for Streamlit Community Cloud (no torch needed for the chat optimiser)
+streamlit>=1.35,<2
+openai>=1.55,<2
+google-genai>=1.5,<2

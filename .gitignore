@@ -5,3 +5,6 @@ __pycache__/
 rlprompt_app.db
 runs/
 .env
+
+# Streamlit secrets
+.streamlit/secrets.toml
