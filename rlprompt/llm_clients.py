@@ -1,0 +1,197 @@
+"""Thin, uniform wrappers around the OpenAI, Gemini and Anthropic APIs.
+
+Every client exposes `complete(text) -> str`. The task LM is still a black
+box: RLPrompt only needs the model's answer, never its gradients or weights.
+Answers are cached in SQLite, so re-scoring a prompt you already tried costs
+nothing, including across runs.
+"""
+from __future__ import annotations
+
+import os
+import random
+import time
+from typing import List, Optional
+
+# Defaults shown in the dropdowns. "Refresh models" in the app asks the
+# provider for the live list, and any model ID can be typed in by hand.
+DEFAULT_MODELS = {
+    "OpenAI": ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
+    "Gemini": ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash"],
+    "Groq": ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"],
+    "Nvidia": ["meta/llama-3.3-70b-instruct", "meta/llama-3.1-70b-instruct", "google/gemma-3-12b-it", "mistralai/mistral-large-2-instruct"],
+}
+KEY_ENV = {
+    "OpenAI": ["OPENAI_API_KEY", "OPEN_API_KEY", "CHAT_API"],
+    "Gemini": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+    "Groq": ["GROQ_API_KEY"],
+    "Nvidia": ["NIMA_API", "NIM_API", "NVIDIA_API_KEY"],
+    "Claude": ["ANTHROPIC_API_KEY", "CLAUDE_API_KEY", "ANTHROPIC_CLAUDE_API_KEY"],
+}
+
+
+class LLMClient:
+    provider = "base"
+
+    def __init__(self, model: str, api_key: Optional[str] = None, max_retries: int = 6,
+                 max_output_tokens: int = 512):
+        self.model = model
+        raw_key = api_key
+        if not raw_key:
+            env_vars = KEY_ENV.get(self.provider, [])
+            if isinstance(env_vars, str):
+                env_vars = [env_vars]
+            for var in env_vars:
+                val = os.environ.get(var)
+                if val:
+                    raw_key = val
+                    break
+        if raw_key and isinstance(raw_key, str):
+            raw_key = raw_key.strip().strip("'\"")
+        self.api_key = raw_key or None
+        self.max_retries = max_retries
+        self.max_output_tokens = max_output_tokens
+        self.calls = 0
+
+    def _complete(self, text: str) -> str:
+        raise NotImplementedError
+
+    def complete(self, text: str) -> str:
+        for attempt in range(self.max_retries):
+            try:
+                self.calls += 1
+                return self._complete(text) or ""
+            except Exception as err:                     # rate limits, timeouts, 5xx
+                if attempt == self.max_retries - 1 or _is_fatal(err):
+                    raise
+                time.sleep(min(30, 2 ** attempt) + random.random())
+        return ""
+
+    def list_models(self) -> List[str]:
+        return DEFAULT_MODELS.get(self.provider, [])
+
+
+def _is_fatal(err: Exception) -> bool:
+    msg = str(err).lower()
+    return any(s in msg for s in ("api key", "api_key", "unauthorized", "permission",
+                                  "not found", "does not exist", "invalid model", "401", "403", "404"))
+
+
+class OpenAIClient(LLMClient):
+    provider = "OpenAI"
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        from openai import OpenAI
+        self.client = OpenAI(api_key=self.api_key)
+        self._reasoning = True          # dropped automatically for models that reject it
+
+    def _complete(self, text: str) -> str:
+        kw = dict(model=self.model, input=text, max_output_tokens=self.max_output_tokens)
+        if self._reasoning:
+            try:
+                return self.client.responses.create(reasoning={"effort": "low"}, **kw).output_text
+            except Exception as err:
+                if "reasoning" not in str(err).lower():
+                    raise
+                self._reasoning = False
+        return self.client.responses.create(**kw).output_text
+
+    def list_models(self) -> List[str]:
+        ids = sorted(m.id for m in self.client.models.list())
+        return [i for i in ids if i.startswith(("gpt", "o")) and not any(
+            s in i for s in ("image", "audio", "realtime", "transcribe", "tts", "embedding", "search"))]
+
+
+class GeminiClient(LLMClient):
+    provider = "Gemini"
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        from google import genai
+        key = self.api_key or os.environ.get("GOOGLE_API_KEY")
+        self.client = genai.Client(api_key=key)
+
+    def _complete(self, text: str) -> str:
+        r = self.client.models.generate_content(
+            model=self.model, contents=text,
+            config={"max_output_tokens": self.max_output_tokens})
+        return r.text or ""
+
+    def list_models(self) -> List[str]:
+        out = []
+        for m in self.client.models.list():
+            name = m.name.split("/")[-1]
+            if name.startswith("gemini") and not any(s in name for s in ("embedding", "tts", "live", "image")):
+                out.append(name)
+        return sorted(out)
+
+
+class ClaudeClient(LLMClient):
+    provider = "Claude"
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        import anthropic
+        self.client = anthropic.Anthropic(api_key=self.api_key)
+
+    def _complete(self, text: str) -> str:
+        r = self.client.messages.create(model=self.model, max_tokens=self.max_output_tokens,
+                                        messages=[{"role": "user", "content": text}])
+        return "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
+
+    def list_models(self) -> List[str]:
+        return sorted(m.id for m in self.client.models.list())
+
+
+class GroqClient(LLMClient):
+    provider = "Groq"
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        from openai import OpenAI
+        self.client = OpenAI(api_key=self.api_key, base_url="https://api.groq.com/openai/v1")
+
+    def _complete(self, text: str) -> str:
+        return self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": text}],
+            max_tokens=self.max_output_tokens,
+        ).choices[0].message.content or ""
+
+    def list_models(self) -> List[str]:
+        ids = sorted(m.id for m in self.client.models.list())
+        return [i for i in ids if not any(s in i for s in ("whisper", "tts", "guard"))]
+
+
+class NvidiaClient(LLMClient):
+    provider = "Nvidia"
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        from openai import OpenAI
+        self.client = OpenAI(api_key=self.api_key, base_url="https://integrate.api.nvidia.com/v1")
+
+    def _complete(self, text: str) -> str:
+        return self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": text}],
+            max_tokens=self.max_output_tokens,
+        ).choices[0].message.content or ""
+
+    def list_models(self) -> List[str]:
+        ids = sorted(m.id for m in self.client.models.list().data)
+        return [i for i in ids if not any(s in i for s in ("embed", "video", "safety", "parse", "clip", "qa"))]
+
+
+CLIENTS = {
+    "OpenAI": OpenAIClient,
+    "Gemini": GeminiClient,
+    "Groq": GroqClient,
+    "Claude": ClaudeClient,
+    "Nvidia": NvidiaClient,
+    "NIM": NvidiaClient,
+}
+
+
+def make_client(provider: str, model: str, api_key: Optional[str] = None) -> LLMClient:
+    return CLIENTS[provider](model, api_key=api_key)

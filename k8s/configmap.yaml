@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rl-optimizer-config
+  labels:
+    app: rl-optimizer
+data:
+  HOST: "0.0.0.0"
+  PORT: "8000"
+  RLPROMPT_DB: "/app/data/rlprompt_app.db"

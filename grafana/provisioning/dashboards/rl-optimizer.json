@@ -1,0 +1,131 @@
+{
+  "title": "RL Prompt Optimizer",
+  "uid": "rl-optimizer",
+  "schemaVersion": 38,
+  "refresh": "15s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "API Instances Up",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "rl_optimizer_app_instances",
+          "legendFormat": "instances",
+          "datasource": "Prometheus"
+        }
+      ],
+      "options": { "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 2,
+      "title": "Prompts Optimised (total)",
+      "type": "stat",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum(rl_optimizer_optimizations_total)",
+          "legendFormat": "optimised",
+          "datasource": "Prometheus"
+        }
+      ],
+      "options": { "colorMode": "background", "graphMode": "area" }
+    },
+    {
+      "id": 3,
+      "title": "Prompts Executed (total)",
+      "type": "stat",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum(rl_optimizer_executions_total)",
+          "legendFormat": "executed",
+          "datasource": "Prometheus"
+        }
+      ],
+      "options": { "colorMode": "background", "graphMode": "area" }
+    },
+    {
+      "id": 4,
+      "title": "p95 Request Latency (s)",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(rl_optimizer_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95",
+          "datasource": "Prometheus"
+        }
+      ],
+      "options": { "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 3 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Error Rate (%)",
+      "type": "stat",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "100 * sum(rate(rl_optimizer_requests_total{status=~\"5..\"}[5m])) / sum(rate(rl_optimizer_requests_total[5m]))",
+          "legendFormat": "error %",
+          "datasource": "Prometheus"
+        }
+      ],
+      "options": { "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Request Rate (req/s)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(rl_optimizer_requests_total[1m]))",
+          "legendFormat": "req/s",
+          "datasource": "Prometheus"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "id": 7,
+      "title": "Requests by Endpoint",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum by (endpoint) (rate(rl_optimizer_requests_total[1m]))",
+          "legendFormat": "{{endpoint}}",
+          "datasource": "Prometheus"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    }
+  ]
+}

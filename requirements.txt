@@ -1,0 +1,29 @@
+# Pinned requirements for Docker / production
+# ── Core ML ──────────────────────────────────────────────────────────────
+torch==2.3.1
+transformers==4.41.2
+datasets==2.20.0
+tokenizers==0.19.1
+numpy==1.26.4
+pandas==2.2.2
+
+# ── Web app ───────────────────────────────────────────────────────────────
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+pydantic==2.7.4
+gradio==4.36.1
+streamlit==1.35.0
+requests==2.32.3
+
+# ── LLM clients ──────────────────────────────────────────────────────────
+openai==1.35.3
+anthropic==0.29.0
+google-genai==1.5.0
+groq==0.9.0
+
+# ── Monitoring ───────────────────────────────────────────────────────────
+prometheus-client==0.20.0
+
+# ── Utils ─────────────────────────────────────────────────────────────────
+python-dotenv==1.0.1
+aiohttp==3.9.5

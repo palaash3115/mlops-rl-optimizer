@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: rl-optimizer
+  labels:
+    app: rl-optimizer
+spec:
+  type: ClusterIP
+  selector:
+    app: rl-optimizer
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+      protocol: TCP
