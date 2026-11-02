@@ -15,7 +15,7 @@ line-length = 120
 # E402 module-level import not at top (common in scripts)
 # F401 imported but unused (often intentional re-exports)
 # F811 redefinition of unused name (common in test fixtures)
-ignore = ["E501", "E402", "F401", "F811"]
+ignore = ["E501", "E402", "F401", "F811", "F841"]
 select = ["E", "F", "W"]
 
 [tool.pytest.ini_options]
