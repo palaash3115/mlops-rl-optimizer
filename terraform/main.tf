@@ -1,100 +1,110 @@
 terraform {
+  required_version = ">= 1.8"
+
   required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 3.0"
+    kind = {
+      source  = "tehcyx/kind"
+      version = "~> 0.4"
+    }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = "~> 2.31"
+    }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.2"
     }
   }
-  required_version = ">= 1.3.0"
 }
 
-provider "azurerm" {
-  features {}
+# ── Variables ────────────────────────────────────────────────────────────────
+variable "cluster_name" {
+  description = "Name of the local kind cluster"
+  default     = "rl-optimizer-cluster"
 }
 
-# ── Resource Group ─────────────────────────────────────────────────────────
-resource "azurerm_resource_group" "rl_optimizer" {
-  name     = var.resource_group_name
-  location = var.location
-  tags     = var.tags
+variable "image_tag" {
+  description = "Docker image tag to deploy"
+  default     = "latest"
 }
 
-# ── Azure Container Instance — API ─────────────────────────────────────────
-resource "azurerm_container_group" "api" {
-  name                = "${var.app_name}-api"
-  location            = azurerm_resource_group.rl_optimizer.location
-  resource_group_name = azurerm_resource_group.rl_optimizer.name
-  os_type             = "Linux"
-  restart_policy      = "Always"
+variable "image_name" {
+  description = "Docker image name (local or GHCR)"
+  default     = "rl-prompt-optimizer"
+}
 
-  container {
-    name   = "api"
-    image  = var.docker_image
-    cpu    = "1.0"
-    memory = "2.0"
+# ── Local kind cluster ───────────────────────────────────────────────────────
+resource "kind_cluster" "this" {
+  name = var.cluster_name
 
-    ports {
-      port     = 8000
-      protocol = "TCP"
-    }
+  kind_config {
+    kind        = "Cluster"
+    api_version = "kind.x-k8s.io/v1alpha4"
 
-    environment_variables = {
-      RLPROMPT_DB = "/app/data/rlprompt_app.db"
-    }
-
-    secure_environment_variables = {
-      GEMINI_API_KEY = var.gemini_api_key
-      GROQ_API_KEY   = var.groq_api_key
-    }
-
-    volume {
-      name       = "data"
-      mount_path = "/app/data"
-      empty_dir  = true
-    }
-
-    liveness_probe {
-      http_get {
-        path   = "/health"
-        port   = 8000
-        scheme = "Http"
+    node {
+      role = "control-plane"
+      extra_port_mappings {
+        container_port = 30080
+        host_port      = 8080
+        listen_address = "0.0.0.0"
+        protocol       = "TCP"
       }
-      initial_delay_seconds = 10
-      period_seconds        = 30
     }
   }
-
-  tags = var.tags
 }
 
-# ── Azure Container Instance — Streamlit ───────────────────────────────────
-resource "azurerm_container_group" "streamlit" {
-  name                = "${var.app_name}-streamlit"
-  location            = azurerm_resource_group.rl_optimizer.location
-  resource_group_name = azurerm_resource_group.rl_optimizer.name
-  os_type             = "Linux"
-  ip_address_type     = "Public"
-  dns_name_label      = "${var.app_name}-ui"
-  restart_policy      = "Always"
+# ── Load the local Docker image into kind ───────────────────────────────────
+resource "null_resource" "load_image" {
+  depends_on = [kind_cluster.this]
 
-  container {
-    name   = "streamlit"
-    image  = var.docker_image
-    cpu    = "0.5"
-    memory = "1.0"
-
-    ports {
-      port     = 8501
-      protocol = "TCP"
-    }
-
-    environment_variables = {
-      API_URL = "http://${azurerm_container_group.api.ip_address}:8000"
-    }
-
-    commands = ["streamlit", "run", "streamlit_app.py",
-                "--server.port=8501", "--server.address=0.0.0.0"]
+  triggers = {
+    image = "${var.image_name}:${var.image_tag}"
   }
 
-  tags = var.tags
+  provisioner "local-exec" {
+    command = "kind load docker-image ${var.image_name}:${var.image_tag} --name ${var.cluster_name}"
+  }
+}
+
+# ── Kubernetes provider pointing at the kind cluster ─────────────────────────
+provider "kubernetes" {
+  host                   = kind_cluster.this.endpoint
+  cluster_ca_certificate = base64decode(kind_cluster.this.cluster_ca_certificate)
+  client_certificate     = base64decode(kind_cluster.this.client_certificate)
+  client_key             = base64decode(kind_cluster.this.client_key)
+}
+
+# ── Deploy k8s manifests ─────────────────────────────────────────────────────
+resource "kubernetes_manifest" "configmap" {
+  depends_on = [kind_cluster.this]
+  manifest   = yamldecode(file("${path.module}/../k8s/configmap.yaml"))
+}
+
+resource "kubernetes_manifest" "deployment" {
+  depends_on = [null_resource.load_image, kubernetes_manifest.configmap]
+  manifest   = yamldecode(file("${path.module}/../k8s/deployment.yaml"))
+}
+
+resource "kubernetes_manifest" "service" {
+  depends_on = [kubernetes_manifest.deployment]
+  manifest   = yamldecode(file("${path.module}/../k8s/service.yaml"))
+}
+
+resource "kubernetes_manifest" "hpa" {
+  depends_on = [kubernetes_manifest.deployment]
+  manifest   = yamldecode(file("${path.module}/../k8s/hpa.yaml"))
+}
+
+# ── Outputs ──────────────────────────────────────────────────────────────────
+output "cluster_name" {
+  value = kind_cluster.this.name
+}
+
+output "kubeconfig_path" {
+  value = kind_cluster.this.kubeconfig_path
+}
+
+output "api_url" {
+  description = "Local API URL (via NodePort → port-forward)"
+  value       = "http://localhost:8080"
 }

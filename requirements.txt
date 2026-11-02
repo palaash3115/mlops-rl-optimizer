@@ -1,6 +1,8 @@
 # Pinned requirements for Docker / production
+# CPU-only PyTorch wheel (skips ~2.5 GB of CUDA libraries)
+--extra-index-url https://download.pytorch.org/whl/cpu
 # ── Core ML ──────────────────────────────────────────────────────────────
-torch==2.3.1
+torch==2.3.1+cpu
 transformers==4.41.2
 datasets==2.20.0
 tokenizers==0.19.1
@@ -28,4 +30,3 @@ prometheus-client==0.20.0
 # ── Utils ─────────────────────────────────────────────────────────────────
 python-dotenv==1.0.1
 aiohttp==3.9.5
-streamlit>=1.35.0
