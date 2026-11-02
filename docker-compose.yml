@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   # ── RL Prompt Optimizer API ──────────────────────────────────────────────
   api:
@@ -8,8 +6,10 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      - RLPROMPT_DB=/app/data/rlprompt_app.db
     volumes:
-      - rlprompt_db:/app/rlprompt_app.db
+      - rlprompt_db:/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

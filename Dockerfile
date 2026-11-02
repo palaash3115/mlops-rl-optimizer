@@ -14,6 +14,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application
 COPY . .
 
+# Ensure the data directory exists for SQLite
+RUN mkdir -p /app/data
+
 # Expose the FastAPI port
 EXPOSE 8000
 
