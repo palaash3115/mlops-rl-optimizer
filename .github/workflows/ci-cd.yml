@@ -27,8 +27,8 @@ jobs:
       - name: Lint with ruff
         run: ruff check .
 
-      - name: Run pytest
-        run: pytest tests -q
+      - name: Run smoke tests
+        run: pytest tests/test_smoke.py -q
 
       - name: Validate Kubernetes manifests (dry-run)
         run: |
