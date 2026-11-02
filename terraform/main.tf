@@ -30,7 +30,7 @@ variable "image_tag" {
 
 variable "image_name" {
   description = "Docker image name (local or GHCR)"
-  default     = "rl-prompt-optimizer"
+  default     = "mlopsproject-api"
 }
 
 # ── Local kind cluster ───────────────────────────────────────────────────────
